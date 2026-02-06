@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: homehub-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: homehub
+      POSTGRES_PASSWORD: homehub123
+      POSTGRES_DB: homehub
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - homehub-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: homehub-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - homehub-network
+
+volumes:
+  postgres_data:
+
+networks:
+  homehub-network:
+    driver: bridge
