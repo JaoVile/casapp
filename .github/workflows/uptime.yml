@@ -1,0 +1,32 @@
+name: Uptime Check
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Check /health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate configuration
+        run: |
+          if [ -z "${UPTIME_HEALTH_URL}" ]; then
+            echo "UPTIME_HEALTH_URL secret is not configured; skipping check."
+            exit 0
+          fi
+        env:
+          UPTIME_HEALTH_URL: ${{ secrets.UPTIME_HEALTH_URL }}
+
+      - name: Request health endpoint
+        run: |
+          status_code=$(curl -L -s -o response.json -w "%{http_code}" "${UPTIME_HEALTH_URL}")
+          echo "Status: ${status_code}"
+          cat response.json
+          if [ "${status_code}" -ne 200 ]; then
+            echo "Health endpoint is unhealthy."
+            exit 1
+          fi
+        env:
+          UPTIME_HEALTH_URL: ${{ secrets.UPTIME_HEALTH_URL }}
