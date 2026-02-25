@@ -2,14 +2,21 @@ export interface JwtPayload {
     sub: string;
     email: string;
     homeId?: string;
+    typ?: 'access' | 'refresh';
+    sid?: string;
+    iat?: number;
+    exp?: number;
   }
   
-  export interface AuthenticatedUser {
+export interface AuthenticatedUser {
     id: string;
     email: string;
+    phone?: string | null;
     name: string;
     homeId?: string;
     isAdmin?: boolean;
+    tokenType?: 'access' | 'refresh';
+    sessionId?: string | null;
   }
   
   export interface PaginationParams {

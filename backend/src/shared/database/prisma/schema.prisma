@@ -13,24 +13,64 @@ model User {
   id        String   @id @default(cuid())
   name      String
   email     String   @unique
+  phone     String?  @unique
   password  String
   avatar    String?
   pixKey    String?
+  phoneVerifiedAt DateTime?
+  lastSeenAt DateTime @default(now())
+  lastInactivityReminderAt DateTime?
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  home      Home?    @relation(fields: [homeId], references: [id])
+  home      Home?    @relation("ActiveHome", fields: [homeId], references: [id])
   homeId    String?
   isAdmin   Boolean  @default(false)
+  homeMemberships HomeMember[]
 
-  expensesPaid    Expense[]       @relation("PaidBy")
+  // Relacionamentos Financeiros
+  expensesPaid    Expense[]      @relation("PaidBy")
   expenseShares   ExpenseShare[]
-  itemsAdded      ShoppingItem[]  @relation("AddedBy")
-  itemsPurchased  ShoppingItem[]  @relation("PurchasedBy")
+  
+  // Relacionamentos de Compras
+  itemsAdded      ShoppingItem[] @relation("AddedBy")
+  itemsPurchased  ShoppingItem[] @relation("PurchasedBy")
   itemNotes       ItemNote[]
 
+  // Relacionamentos de Tarefas (NOVO)
+  tasks           Task[]
+  passwordResetTokens PasswordResetToken[]
+  refreshSessions RefreshSession[]
+  auditLogs       AuditLog[]
+  notifications   Notification[]
+
+  @@index([homeId])
+  @@index([lastSeenAt])
+  @@index([lastInactivityReminderAt])
   @@map("users")
+}
+
+// ======================== SESSOES DE REFRESH TOKEN ========================
+
+model RefreshSession {
+  id                String   @id
+  tokenHash         String   @unique
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedBySessionId String?
+  lastUsedAt        DateTime?
+  ipAddress         String?
+  userAgent         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("refresh_sessions")
 }
 
 // ======================== CASA ========================
@@ -43,29 +83,56 @@ model Home {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  members       User[]
+  members       HomeMember[]
+  activeUsers   User[]       @relation("ActiveHome")
   categories    Category[]
   expenses      Expense[]
   shoppingLists ShoppingList[]
+  tasks         Task[]
+  auditLogs     AuditLog[]
+  notifications Notification[]
 
   @@map("homes")
+}
+
+model HomeMember {
+  id        String   @id @default(cuid())
+  role      HomeRole @default(MEMBER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  home      Home     @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  homeId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+
+  @@unique([homeId, userId])
+  @@index([userId])
+  @@index([homeId])
+  @@map("home_members")
+}
+
+enum HomeRole {
+  ADMIN
+  MEMBER
 }
 
 // ======================== CATEGORIAS ========================
 
 model Category {
-  id           String       @id @default(cuid())
-  name         String
-  icon         String
-  color        String
-  type         CategoryType @default(VARIABLE)
-  isRecurring  Boolean      @default(false)
+  id          String       @id @default(cuid())
+  name        String
+  icon        String
+  color       String
+  type        CategoryType @default(VARIABLE)
+  isRecurring Boolean      @default(false)
   recurringDay Int?
 
-  home     Home      @relation(fields: [homeId], references: [id], onDelete: Cascade)
-  homeId   String
-  expenses Expense[]
+  home      Home      @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  homeId    String
+  expenses  Expense[]
 
+  @@index([homeId])
   @@map("categories")
 }
 
@@ -90,14 +157,17 @@ model Expense {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  paidBy     User     @relation("PaidBy", fields: [paidById], references: [id])
-  paidById   String
-  category   Category @relation(fields: [categoryId], references: [id])
-  categoryId String
-  home       Home     @relation(fields: [homeId], references: [id], onDelete: Cascade)
-  homeId     String
-  shares     ExpenseShare[]
+  paidBy      User      @relation("PaidBy", fields: [paidById], references: [id])
+  paidById    String
+  category    Category  @relation(fields: [categoryId], references: [id])
+  categoryId  String
+  home        Home      @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  homeId      String
+  shares      ExpenseShare[]
 
+  @@index([homeId, date])
+  @@index([paidById])
+  @@index([categoryId])
   @@map("expenses")
 }
 
@@ -112,33 +182,39 @@ enum SplitType {
 model ExpenseShare {
   id        String    @id @default(cuid())
   amount    Float
+  splitPercent Float?
   isPaid    Boolean   @default(false)
   paidAt    DateTime?
+  proofUrl  String?
+  proofDescription String?
 
-  expense   Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  expense   Expense   @relation(fields: [expenseId], references: [id], onDelete: Cascade)
   expenseId String
-  user      User    @relation(fields: [userId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
   userId    String
 
   @@unique([expenseId, userId])
+  @@index([userId, isPaid])
+  @@index([expenseId, isPaid])
   @@map("expense_shares")
 }
 
 // ======================== LISTA DE COMPRAS ========================
 
 model ShoppingList {
-  id       String           @id @default(cuid())
-  name     String
-  type     ShoppingListType @default(SIMPLE)
-  isActive Boolean          @default(true)
+  id        String           @id @default(cuid())
+  name      String
+  type      ShoppingListType @default(SIMPLE)
+  isActive  Boolean          @default(true)
   
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
 
-  home   Home           @relation(fields: [homeId], references: [id], onDelete: Cascade)
-  homeId String
-  items  ShoppingItem[]
+  home      Home             @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  homeId    String
+  items     ShoppingItem[]
 
+  @@index([homeId])
   @@map("shopping_lists")
 }
 
@@ -150,12 +226,12 @@ enum ShoppingListType {
 // ======================== ITENS DA LISTA ========================
 
 model ShoppingItem {
-  id             String     @id @default(cuid())
-  name           String
-  description    String?
-  quantity       Int        @default(1)
-  isPurchased    Boolean    @default(false)
-  purchasedAt    DateTime?
+  id              String      @id @default(cuid())
+  name            String
+  description     String?
+  quantity        Int         @default(1)
+  isPurchased     Boolean     @default(false)
+  purchasedAt     DateTime?
   
   targetPriceMin  Float?
   targetPriceMax  Float?
@@ -164,24 +240,27 @@ model ShoppingItem {
   lowestPriceUrl  String?
   lowestPriceDate DateTime?
   
-  status      ItemStatus @default(PENDING)
-  priority    Priority   @default(MEDIUM)
+  status       ItemStatus @default(PENDING)
+  priority     Priority   @default(MEDIUM)
   alertOnPrice Boolean    @default(true)
   alertSent    Boolean    @default(false)
   
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
-  list          ShoppingList  @relation(fields: [listId], references: [id], onDelete: Cascade)
-  listId        String
-  addedBy       User          @relation("AddedBy", fields: [addedById], references: [id])
-  addedById     String
-  purchasedBy   User?         @relation("PurchasedBy", fields: [purchasedById], references: [id])
+  list         ShoppingList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  listId       String
+  addedBy      User         @relation("AddedBy", fields: [addedById], references: [id])
+  addedById    String
+  purchasedBy  User?        @relation("PurchasedBy", fields: [purchasedById], references: [id])
   purchasedById String?
-  urls          ProductUrl[]
-  priceHistory  PriceHistory[]
-  notes         ItemNote[]
+  urls         ProductUrl[]
+  priceHistory PriceHistory[]
+  notes        ItemNote[]
 
+  @@index([listId, createdAt])
+  @@index([addedById])
+  @@index([purchasedById])
   @@map("shopping_items")
 }
 
@@ -210,8 +289,8 @@ model ProductUrl {
   lastCheck DateTime?
   isActive  Boolean   @default(true)
 
-  item   ShoppingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  itemId String
+  item      ShoppingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  itemId    String
 
   @@map("product_urls")
 }
@@ -225,8 +304,8 @@ model PriceHistory {
   store      String
   capturedAt DateTime @default(now())
 
-  item   ShoppingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  itemId String
+  item       ShoppingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  itemId     String
 
   @@map("price_history")
 }
@@ -238,10 +317,100 @@ model ItemNote {
   content   String
   createdAt DateTime @default(now())
 
-  item     ShoppingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  itemId   String
-  author   User         @relation(fields: [authorId], references: [id])
-  authorId String
+  item      ShoppingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  itemId    String
+  author    User         @relation(fields: [authorId], references: [id])
+  authorId  String
 
   @@map("item_notes")
+}
+
+// ======================== TAREFAS (GAMIFICATION) ========================
+
+model Task {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  points      Int      @default(10)
+  isDone      Boolean  @default(false)
+  frequency   String?  // Ex: "DAILY", "WEEKLY"
+  
+  dueDate     DateTime?
+  completedAt DateTime?
+
+  // Relacionamentos
+  assignedTo   User?   @relation(fields: [assignedToId], references: [id])
+  assignedToId String?
+  
+  home         Home    @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  homeId       String
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([homeId, isDone, createdAt])
+  @@index([assignedToId])
+  @@map("tasks")
+}
+
+// ======================== RECUPERACAO DE SENHA ========================
+
+model PasswordResetToken {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+
+  @@index([userId, expiresAt])
+  @@index([usedAt])
+  @@map("password_reset_tokens")
+}
+
+// ======================== AUDITORIA ========================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId     String?
+
+  home       Home?    @relation(fields: [homeId], references: [id], onDelete: SetNull)
+  homeId     String?
+
+  @@index([userId, createdAt])
+  @@index([homeId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
+
+// ======================== NOTIFICACOES ========================
+
+model Notification {
+  id         String   @id @default(cuid())
+  type       String
+  title      String
+  message    String
+  metadata   Json?
+  isRead     Boolean  @default(false)
+  readAt     DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+
+  home       Home?    @relation(fields: [homeId], references: [id], onDelete: SetNull)
+  homeId     String?
+
+  @@index([userId, isRead, createdAt])
+  @@index([homeId, createdAt])
+  @@index([type, createdAt])
+  @@map("notifications")
 }

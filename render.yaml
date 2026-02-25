@@ -1,0 +1,52 @@
+services:
+  - type: web
+    name: casapp-backend
+    runtime: node
+    rootDir: backend
+    plan: free
+    autoDeploy: true
+    buildCommand: npm ci && npm run db:generate && npm run build
+    preDeployCommand: npm run db:migrate:deploy
+    startCommand: npm run start:prod
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3333
+      - key: DATABASE_URL
+        fromDatabase:
+          name: casapp-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: casapp-redis
+          property: connectionString
+      - key: FRONTEND_URL
+        value: https://casapp-frontend.onrender.com
+      - key: JWT_SECRET
+        generateValue: true
+
+  - type: web
+    name: casapp-frontend
+    runtime: node
+    rootDir: frontend
+    plan: free
+    autoDeploy: true
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_URL
+        value: https://casapp-backend.onrender.com/api
+
+  - type: redis
+    name: casapp-redis
+    plan: free
+    ipAllowList: []
+
+databases:
+  - name: casapp-postgres
+    plan: free
